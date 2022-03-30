@@ -32,13 +32,15 @@ def hamming_encoder(information_words_array):
     '''
     word_length = 4
     if not isinstance(information_words_array, type(np.array([], dtype=np.ubyte))): raise TypeError("The input must be a numpy array.")
+    if information_words_array.dtype != np.ubyte: raise TypeError("The input must be a numpy array with element of type np.ubyte")
     if len(information_words_array) % word_length != 0: raise ValueError(f"The input must have a len that is multiple of {word_length}")
     
     # The matrix G is used to encode the word using hamming code.
-    G = np.array([[1, 0, 0, 0, 1, 1, 1],
-                  [0, 1, 0, 0, 1, 0, 1],
-                  [0, 0, 1, 0, 1, 1, 0],
-                  [0, 0, 0, 1, 0, 1, 1]])
+    G = np.array([[1, 0, 0, 0, 1, 1, 1],  # b1
+                  [0, 1, 0, 0, 1, 0, 1],  # b2
+                  [0, 0, 1, 0, 1, 1, 0],  # b3
+                  [0, 0, 0, 1, 0, 1, 1]]) # b4
+                 # b1 b2 b3 b4 p1 p2 p3
 
     codewords = []
     for ini in range(0, len(information_words_array), word_length):
@@ -49,6 +51,84 @@ def hamming_encoder(information_words_array):
         codewords.extend(code_word)
 
     return np.array(codewords, dtype=np.ubyte)
+
+
+def hamming_decoder(codewords_array):
+    '''
+    Function ID: HD
+    Description: This function recovers a candidate for information word from each 
+    codeword in codewords_array and returns those candidates in an array with the 
+    same order they were produced. The information word returned is not necessarily
+    wqual to the original information word, it is only a guess based on Hamming code.
+
+    Codeword                   -> b1, b2, b3, b4, p1, p2, p3
+    Guess for information word -> b1', b2', b3', b4'
+
+    Input: (np.array) codewords_array --> numpy array with length that 
+                                                  is multiple of 7 (the size of 
+                                                  each codeword. Each element is 
+                                                  either a 0 or a 1.
+    Output: (np.array) --> numpy array of np.ubyte with len(codewords_array)/7 
+                           candidates of information words.Each information word 
+                           has 4 elements.
+    '''
+    codeword_length = 7
+    word_length = 4
+    if not isinstance(codewords_array, type(np.array([], dtype=np.ubyte))): raise TypeError("The input must be a numpy array.")
+    if codewords_array.dtype != np.ubyte: raise TypeError("The input must be a numpy array with element of type np.ubyte")
+    if len(codewords_array) % codeword_length != 0: raise ValueError(f"The input must have a len that is multiple of {codeword_length}")
+    
+    # Matriz de verificacao de paridade
+    H_T = [[1, 1, 1], # b1
+           [1, 0, 1], # b2
+           [1, 1, 0], # b3
+           [0, 1, 1], # b4
+           [1, 0, 0], # p1
+           [0, 1, 0], # p2
+           [0, 0, 1]] # p3
+          # s1 s2 s3
+
+    candidate_information_words = []
+    for ini in range(0, len(codewords_array), codeword_length):
+        end = ini + codeword_length
+        received_codeword = codewords_array[ini : end]
+        syndrome = received_codeword @ H_T
+        syndrome %= 2
+        candidate_for_error = _get_min_hamming_weight_error_for_given_syndrome(syndrome)
+        candidate_codeword = np.bitwise_xor(candidate_for_error, received_codeword)
+        candidate_information_words.extend(candidate_codeword[0 : word_length])
+    return np.array(candidate_information_words, dtype=np.ubyte)
+    
+
+def _get_min_hamming_weight_error_for_given_syndrome(syndrome):
+    # We have few possibilities (2**3 = 8), thus, they are going to be hardcoded.
+
+    #   Syndromes         Error with min Hamming weight
+    #   (s1, s2, s3) -->  [b1, b2, b3, b4, p1, p2, p3]
+    #   ( 0,  0,  0) -->  [ 0,  0,  0,  0,  0,  0,  0]
+    #   ( 0,  0,  1) -->  [ 0,  0,  0,  0,  0,  0,  1]
+    #   ( 0,  1,  0) -->  [ 0,  0,  0,  0,  0,  1,  0]
+    #   ( 0,  1,  1) -->  [ 0,  0,  0,  1,  0,  0,  0]
+    #   ( 1,  0,  0) -->  [ 0,  0,  0,  0,  1,  0,  0]
+    #   ( 1,  0,  1) -->  [ 0,  1,  0,  0,  0,  0,  0]
+    #   ( 1,  1,  0) -->  [ 0,  0,  1,  0,  0,  0,  0]
+    #   ( 1,  1,  1) -->  [ 1,  0,  0,  0,  0,  0,  0]
+    if not hasattr(_get_min_hamming_weight_error_for_given_syndrome, "syn_to_error_dict"):
+        _get_min_hamming_weight_error_for_given_syndrome.syn_to_error_dict = {
+                (0,  0,  0) : [ 0,  0,  0,  0,  0,  0,  0],
+                (0,  0,  1) : [ 0,  0,  0,  0,  0,  0,  1],
+                (0,  1,  0) : [ 0,  0,  0,  0,  0,  1,  0],
+                (0,  1,  1) : [ 0,  0,  0,  1,  0,  0,  0],
+                (1,  0,  0) : [ 0,  0,  0,  0,  1,  0,  0],
+                (1,  0,  1) : [ 0,  1,  0,  0,  0,  0,  0],
+                (1,  1,  0) : [ 0,  0,  1,  0,  0,  0,  0],
+                (1,  1,  1) : [ 1,  0,  0,  0,  0,  0,  0]
+                }
+
+    return _get_min_hamming_weight_error_for_given_syndrome.syn_to_error_dict[tuple(syndrome)]
+       
+    
+    
 
 
 
@@ -72,8 +152,10 @@ class TestHE(unittest.TestCase):
     def test_HE001(self):
         with self.assertRaises(TypeError):
             hamming_encoder([1, 2, 3])
+        with self.assertRaises(TypeError):
+            hamming_encoder(np.array([1, 2, 3, 5], dtype=int))
         with self.assertRaises(ValueError):
-            hamming_encoder(np.array([1, 2, 3]))
+            hamming_encoder(np.array([1, 2, 3], dtype=np.ubyte))
         with self.assertRaises(TypeError):
             hamming_encoder(123)
         with self.assertRaises(TypeError):
@@ -126,28 +208,88 @@ class TestHE(unittest.TestCase):
 
 
 '''
-Function name: abc
-ID: ABC
+Function name: hamming_decoder 
+ID: HD 
 '''
-class TestS(unittest.TestCase):
+class TestHD(unittest.TestCase):
     '''
     Test cases:
-    S001 - Test with wrong inputs.
+    HD001 - Test with wrong inputs.
 
-    S002 - Test some edge cases.
+    HD002 - Test some edge cases.
     
-    S003 - Test cases for each partition.
+    HD003 - Test cases for each partition.
     '''
-    def test_S001(self):
-        self.assertEqual(2, 2)
+    def test_HD001(self):
+        with self.assertRaises(TypeError):
+            hamming_decoder([1, 2, 3])
+        with self.assertRaises(TypeError):
+            hamming_decoder(np.array([1, 2, 3, 5, 6, 7], dtype=int))
+        with self.assertRaises(TypeError):
+            hamming_decoder(123)
+        with self.assertRaises(TypeError):
+            hamming_decoder([])
+        with self.assertRaises(ValueError):
+            hamming_decoder(np.array([1, 2, 3], dtype=np.ubyte))
 
 
-    def test_S002(self):
-        pass
+    def test_HD002(self):
+        #No code word:
+        codewords = np.array([], dtype=np.ubyte)
+        information_words_expected = np.array([], dtype=np.ubyte)
+        self.assertEqual(hamming_decoder(codewords).tolist(), information_words_expected.tolist())
+
+        # 1 code word
+        ## only 0s
+        codewords = np.array([0, 0, 0, 0, 0, 0, 0], dtype=np.ubyte)
+        information_words_expected = np.array([0, 0, 0, 0], dtype=np.ubyte)
+        self.assertEqual(hamming_decoder(codewords).tolist(), information_words_expected.tolist())
+
+        ## p1 is wrong:
+        codewords = np.array([0, 0, 0, 0, 1, 0, 0], dtype=np.ubyte)
+        information_words_expected = np.array([0, 0, 0, 0], dtype=np.ubyte)
+        self.assertEqual(hamming_decoder(codewords).tolist(), information_words_expected.tolist())
+
+        ## p2 is wrong:
+        codewords = np.array([0, 0, 0, 0, 0, 1, 0], dtype=np.ubyte)
+        information_words_expected = np.array([0, 0, 0, 0], dtype=np.ubyte)
+        self.assertEqual(hamming_decoder(codewords).tolist(), information_words_expected.tolist())
+
+        ## b3 wrong:
+        codewords = np.array([0, 0, 1, 0, 0, 0, 0], dtype=np.ubyte)
+        information_words_expected = np.array([0, 0, 0, 0], dtype=np.ubyte)
+        self.assertEqual(hamming_decoder(codewords).tolist(), information_words_expected.tolist())
+
+        ## b1 wrong:
+        codewords = np.array([1, 0, 0, 0, 0, 0, 0], dtype=np.ubyte)
+        information_words_expected = np.array([0, 0, 0, 0], dtype=np.ubyte)
+        self.assertEqual(hamming_decoder(codewords).tolist(), information_words_expected.tolist())
+
+        ## b1 wrong:
+        codewords = np.array([0, 0, 0, 0, 1, 1, 1], dtype=np.ubyte)
+        information_words_expected = np.array([1, 0, 0, 0], dtype=np.ubyte)
+        self.assertEqual(hamming_decoder(codewords).tolist(), information_words_expected.tolist())
+
+        ## b2 wrong:
+        codewords = np.array([1, 0, 1, 1, 1, 1, 1], dtype=np.ubyte)
+        information_words_expected = np.array([1, 1, 1, 1], dtype=np.ubyte)
+        self.assertEqual(hamming_decoder(codewords).tolist(), information_words_expected.tolist())
+
+        # 2 Code words:
+        ## b1 wrong for the first codeword and b2 wrong for the second:
+        codewords = np.array([0, 0, 0, 0, 1, 1, 1] + [1, 0, 1, 1, 1, 1, 1], dtype=np.ubyte)
+        information_words_expected = np.array([1, 0, 0, 0] + [1, 1, 1, 1], dtype=np.ubyte)
+        self.assertEqual(hamming_decoder(codewords).tolist(), information_words_expected.tolist())
 
 
-    def test_S003(self):
-        pass
+
+
+    def test_HD003(self):
+        # 3 codewords:
+        codewords = np.array([0, 1, 1, 0, 1, 0, 1] + [0, 0, 0, 1, 0, 1, 1] + [1, 1, 1, 1, 1, 1, 0], dtype=np.ubyte)
+        information_words_expected = np.array([0, 1, 0, 0] + [0, 0, 0, 1] + [1, 1, 1, 1], dtype=np.ubyte)
+        self.assertEqual(hamming_decoder(codewords).tolist(), information_words_expected.tolist())
+
 
 
 if __name__=='__main__':
