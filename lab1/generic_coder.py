@@ -103,7 +103,7 @@ class GenericParityBitBlockCoder():
         word_length = self.information_word_length
         default_error = [0] * codeword_length
         if not isinstance(codewords_array, type(np.array([], dtype=np.ubyte))): raise TypeError("The input must be a numpy array.")
-        if codewords_array.dtype != np.ubyte: raise TypeError("The input must be a numpy array with element of type np.ubyte")
+        if  codewords_array.dtype != np.ubyte: raise TypeError("The input must be a numpy array with element of type np.ubyte")
         if len(codewords_array) % codeword_length != 0: raise ValueError(f"The input must have a len that is multiple of {codeword_length}")
         
         # Matriz de verificacao de paridade
