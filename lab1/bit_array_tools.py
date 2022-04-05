@@ -16,7 +16,7 @@ def compare_arrays(array1, array2):
     """
     if not isinstance(array1, type(np.array([]))) or not isinstance(array2, type(np.array([]))):
         raise TypeError("Both arrays must be numpy arrays.")
-    if not array1.dtype != np.ubyte or not array2.dtype != np.ubyte:
+    if array1.dtype != np.ubyte or array2.dtype != np.ubyte:
         raise TypeError("Both numpy arrays must have dtype of np.ubyte")
     if len(array1) != len(array2):
         raise ValueError("Both arrays must have the same size.")
