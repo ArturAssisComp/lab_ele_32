@@ -44,7 +44,7 @@ class CyclicBitBlockCoder():
 
 
     def _init_min_weight_error_for_given_syndrome(self, num_of_bits_to_correct):
-        syndrome_length = self.codeword_length - self.information_word_length
+        if num_of_bits_to_correct > 2 or num_of_bits_to_correct < 1: raise ValueError("The number of bits to correct must be up to 1 or 2.")
 
         #Correct last bit:
         last_bit_error_coef = tuple([0] * (self.codeword_length - 1) + [1])
@@ -53,8 +53,17 @@ class CyclicBitBlockCoder():
         self.min_weight_error_for_given_syndrome = dict()
         self.min_weight_error_for_given_syndrome[syndrome_coef] = (last_bit_error_coef, 1) 
 
-        #Implement correction for more bits:
-        # ...
+        #Correct two bits:
+        if(num_of_bits_to_correct >= 2):
+            last_bit_error_coef = [0] * (self.codeword_length - 1) + [1]
+            for i in range(self.codeword_length):
+                two_bits_error_coef = last_bit_error_coef.copy()
+                two_bits_error_coef[i] = 1
+                two_bits_error_polynomial = P(two_bits_error_coef)
+                syndrome_coef = tuple((two_bits_error_polynomial % self.generator_polynomial).coef % 2)
+                if self.min_weight_error_for_given_syndrome.get(syndrome_coef) is None:
+                    self.min_weight_error_for_given_syndrome[syndrome_coef] = (last_bit_error_coef, 2) 
+
         
 
     def encode(self, information_words_array):
@@ -99,6 +108,33 @@ class CyclicBitBlockCoder():
             candidate_information_words.extend(candidate_information_word)
         return np.array(candidate_information_words, dtype=np.ubyte)
 
+
+def calculate_min_hamming_distance_of_generator_polynomial(g, N):
+    generator_polynomial = P(g)
+    codeword_length = N 
+    information_word_length = N - len(g) + 1
+    information_word = [0] * information_word_length
+    min_hamming_distance = information_word_length + 1
+    for i in range(2**information_word_length):
+        code_word = (generator_polynomial * P(information_word)).coef % 2
+        current_hamming_distance = sum(code_word)  
+        if current_hamming_distance < min_hamming_distance and current_hamming_distance > 0:
+            min_hamming_distance = current_hamming_distance
+        _binary_increment(information_word)
+    return min_hamming_distance
+
+def _binary_increment(binary_number:list)->None:
+    carry = 1
+    for i in range(len(binary_number)):
+        current_index = len(binary_number) - 1 - i
+        current_bit = binary_number[current_index]
+        carry, binary_number[current_index] = _add_bit(carry, current_bit)
+        if carry == 0: break
+
+def _add_bit(bit1, bit2):
+    carry = bit1 & bit2
+    result = bit1 ^ bit2
+    return (carry, result)
 
 
 
