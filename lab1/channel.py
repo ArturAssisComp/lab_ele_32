@@ -31,3 +31,15 @@ def binary_symmetric_channel(bit_array, p):
 
     return new_bit_array
 
+def gaussian_channel(codewords_array, mu=0, sigma=1, Eb = 1):
+    transmitted_words = list(codewords_array)
+    for i in range(len(transmitted_words)):
+        random_term = random.gauss(mu=mu, sigma=sigma)
+        if transmitted_words[i] == 0:
+            transmitted_words[i]  = 0 - np.sqrt(Eb)
+        else:
+            transmitted_words[i]  = 1 + np.sqrt(Eb)
+
+        transmitted_words[i] += random_term
+    return transmitted_words
+
