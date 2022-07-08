@@ -64,6 +64,7 @@ class ConvolutionalBitBlockCoder():
             output = self._encode_element(1, next_state)
             self.lattice[current_state][1]['next_state'] = tuple(next_state)
             self.lattice[current_state][1]['output'] = tuple(output)
+        
 
 
 
@@ -98,16 +99,18 @@ class ConvolutionalBitBlockCoder():
         return np.array(codewords, dtype=np.ubyte)
 
 
-    def decode(self, codewords_array, number_of_blocks_per_window = 100, possible_starting_states = None):
+    def decode(self, codewords_array, number_of_blocks_per_window = 1000, possible_starting_states = None):
         decoded_message = list() 
         block_size = self.code_rules['number_of_outputs']
         step_size = block_size * number_of_blocks_per_window
         if possible_starting_states is None:
             possible_starting_states = [tuple([0] * self.code_rules['number_of_memory_units'])]
         current_possible_starting_states = possible_starting_states.copy()
+        current_decoder_status = _create_current_decoder_status_column(self.code_rules['number_of_memory_units'])
         for i in range(0, len(codewords_array), step_size):
             window = codewords_array[i:(i + step_size)]
-            decoded_message.extend(self._decode_window_block(window, current_possible_starting_states))
+            decoded_message.extend(self._decode_window_block(window, current_decoder_status, starting_states = current_possible_starting_states))
+            current_possible_starting_states = None
 
         return np.array(decoded_message, dtype=np.ubyte)
 
@@ -119,6 +122,13 @@ class ConvolutionalBitBlockCoder():
             for element1, element2 in zip(received_block, potential_block):
                 if element1 != element2:
                     cost += 1
+        elif self.code_rules['decode_value_calculation_method'] == 'gaussian_quadratic_distance':
+            received_block = kwargs['received_block']
+            potential_block = kwargs['potential_block']
+            for element1, element2 in zip(received_block, potential_block):
+                if element2 == 0:
+                    element2 = -1
+                cost += np.power(element1 - element2, 2)
         else:
             raise RuntimeError(f"Method for calculating the node value '{self.code_rules['decode_value_calculation_method']}' is not implemented.")
 
@@ -139,40 +149,38 @@ class ConvolutionalBitBlockCoder():
         current_value = self._calculate_translation_cost(**kargs)
         return next_state, current_value
 
-
-    def _decode_window_block(self, window:list, current_possible_starting_states:list):
+    def _decode_window_block(self, window:list, current_decoder_status, starting_states = None):
         block_size = self.code_rules['number_of_outputs']
         if len(window) % block_size != 0:
             raise ValueError(f"Invalid window block size. {len(window) =} is not divided by {block_size =}.")
-        current_decoder_status = _create_current_decoder_status_column(self.code_rules['number_of_memory_units'])
         block_size = self.code_rules['number_of_outputs']
         number_of_blocks_to_process = len(window) / block_size
 
         # Process the first block: 
         block_index = 0
-        block = window[block_index:(block_index + block_size)]
-        for current_state in current_possible_starting_states:
-            # Simulate next element as 0:
-            element = 0
-            next_state, current_value = self._simulate_system_answer_for_element(current_state, element, block)
-            next_node = current_decoder_status[next_state]['next_node']
-            if next_node is None or current_value < next_node.node_cost:
-                current_decoder_status[next_state]['next_node'] = Node(element, current_value, current_decoder_status[current_state]['current_node'])
+        if starting_states is not None:
+            block = window[block_index:(block_index + block_size)]
+            for current_state in starting_states:
+                # Simulate next element as 0:
+                element = 0
+                next_state, current_value = self._simulate_system_answer_for_element(current_state, element, block)
+                next_node = current_decoder_status[next_state]['next_node']
+                if next_node is None or current_value < next_node.node_cost:
+                    current_decoder_status[next_state]['next_node'] = Node(element, current_value, current_decoder_status[current_state]['current_node'])
 
-            # Simulate next element as 1:
-            element = 1
-            next_state, current_value = self._simulate_system_answer_for_element(current_state, element, block)
-            next_node = current_decoder_status[next_state]['next_node']
-            if next_node is None or current_value < next_node.node_cost:
-                current_decoder_status[next_state]['next_node'] = Node(element, current_value, current_decoder_status[current_state]['current_node'])
-
-        for current_state in current_decoder_status:
-            current_decoder_status[current_state]['current_node'] = current_decoder_status[current_state]['next_node']
-            current_decoder_status[current_state]['next_node'] = None
-        number_of_blocks_to_process -= 1
+                # Simulate next element as 1:
+                element = 1
+                next_state, current_value = self._simulate_system_answer_for_element(current_state, element, block)
+                next_node = current_decoder_status[next_state]['next_node']
+                if next_node is None or current_value < next_node.node_cost:
+                    current_decoder_status[next_state]['next_node'] = Node(element, current_value, current_decoder_status[current_state]['current_node'])
+            for current_state in current_decoder_status:
+                current_decoder_status[current_state]['current_node'] = current_decoder_status[current_state]['next_node']
+                current_decoder_status[current_state]['next_node'] = None
+            number_of_blocks_to_process -= 1
+            block_index += block_size
 
         while number_of_blocks_to_process > 0:
-            block_index += block_size
             block = window[block_index:(block_index + block_size)]
             for current_state in current_decoder_status:
                 # Check for unreachable state:
@@ -196,21 +204,18 @@ class ConvolutionalBitBlockCoder():
                 current_decoder_status[current_state]['current_node'] = current_decoder_status[current_state]['next_node']
                 current_decoder_status[current_state]['next_node'] = None
             number_of_blocks_to_process -= 1
+            block_index += block_size
 
-        #Get the sequence with the smallest cost:
-        while len(current_possible_starting_states) > 0:
-            current_possible_starting_states.pop()
         node_with_smallest_cost = None
-        state_for_the_smallest_cost_node = None
         for current_state in current_decoder_status:
             if current_decoder_status[current_state]['current_node'] is None:
                 continue
-            current_possible_starting_states.append(current_state)
+            tmp_node = current_decoder_status[current_state]['current_node']
+            current_decoder_status[current_state]['current_node'] = EmptyNode(initial_cost = tmp_node.path_cost)
             if node_with_smallest_cost is None or \
-               node_with_smallest_cost.path_cost > current_decoder_status[current_state]['current_node'].path_cost:
+               node_with_smallest_cost.path_cost > tmp_node.path_cost:
 
-                node_with_smallest_cost = current_decoder_status[current_state]['current_node']
-                state_for_the_smallest_cost_node = current_state
+                node_with_smallest_cost = tmp_node
         return node_with_smallest_cost.get_sequence()
 
             
@@ -230,6 +235,9 @@ class Node():
         self.next_node = next_node
         self.element = element
 
+    def __repr__(self):
+        return f'Node<path_cost:{self.path_cost};node_cost:{self.node_cost};element:{self.element};sequence:"{self.get_sequence()}">'
+
     def get_sequence(self):
         sequence = list()
         pointer = self
@@ -241,8 +249,9 @@ class Node():
 
 
 class EmptyNode(Node):
-    def __init__(self):
+    def __init__(self, initial_cost = 0):
         super().__init__(None, 0, None)
+        self.path_cost = initial_cost
 
 def _create_current_decoder_status_column(number_of_memories:int)->dict:
     ''' 
